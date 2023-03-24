@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using CakeMachine.Fabrication.ContexteProduction;
 using CakeMachine.Fabrication.Elements;
 using CakeMachine.Fabrication.Opérations;
+using CakeMachine.Utils;
 
 namespace CakeMachine.Simulation.Algorithmes;
 
@@ -68,17 +69,35 @@ internal class PremierPas : Algorithme
             // await foreach (var p in deuxParDeuxAsync(usine, postePréparation, posteCuisson, posteEmballage)) yield return p;
 
             var plats = usine.StockInfiniPlats.Take(10).ToArray();
-            var gateauxCru = await Task.WhenAll(plats.Select(postePréparation.PréparerAsync));
-            
-            var gateauxCuit = await posteCuisson.CuireAsync(gateauxCru.Take(5).ToArray());
-            var gateauxCuit2 = await posteCuisson.CuireAsync(gateauxCru.Skip(5).Take(5).ToArray());
-            
-            gateauxCuit = gateauxCuit.Concat(gateauxCuit2).ToArray();
-            
-            var gateauEmballer = await Task.WhenAll(gateauxCuit.Select(posteEmballage.EmballerAsync));
+            var gateauxCru = (plats.Select(postePréparation.PréparerAsync)).EnumerateCompleted();
 
-            foreach (var gateau in gateauEmballer)
+            var bufferGateauxCru = new List<GâteauCru>();
+            var gateauxCuit = await CuireAsync(gateauxCru, bufferGateauxCru, posteCuisson).ToEnumerableAsync();
+
+            
+            
+            var gateauEmballer = gateauxCuit.Select(posteEmballage.EmballerAsync).EnumerateCompleted();
+
+            await foreach (var gateau in gateauEmballer)
                 yield return gateau;
+        }
+    }
+
+    private static async IAsyncEnumerable<GâteauCuit> CuireAsync(IAsyncEnumerable<GâteauCru> gateauxCru, List<GâteauCru> bufferGateauxCru, Cuisson posteCuisson)
+    {
+        await foreach (var gateauCru in gateauxCru)
+        {
+            bufferGateauxCru.Add(gateauCru);
+            if (bufferGateauxCru.Count == 5)
+            {
+               var gateauxCuit =  await posteCuisson.CuireAsync(bufferGateauxCru.ToArray());
+
+               foreach (var gateau in gateauxCuit)
+               {
+                   yield return gateau;
+               }
+               bufferGateauxCru.Clear();
+            }
         }
     }
 
