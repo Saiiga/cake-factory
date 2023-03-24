@@ -68,19 +68,35 @@ internal class PremierPas : Algorithme
             // yield return await unParUnAsync(usine, postePréparation, posteCuisson, posteEmballage);
             // await foreach (var p in deuxParDeuxAsync(usine, postePréparation, posteCuisson, posteEmballage)) yield return p;
 
-            var plats = usine.StockInfiniPlats.Take(10).ToArray();
-            var gateauxCru = (plats.Select(postePréparation.PréparerAsync)).EnumerateCompleted();
-
-            var bufferGateauxCru = new List<GâteauCru>();
-            var gateauxCuit = await CuireAsync(gateauxCru, bufferGateauxCru, posteCuisson).ToEnumerableAsync();
-
+            //await foreach (var p in DixParDixAsync(usine, postePréparation, posteCuisson, posteEmballage)) yield return p;
             
-            
-            var gateauEmballer = gateauxCuit.Select(posteEmballage.EmballerAsync).EnumerateCompleted();
+            var plats = usine.StockInfiniPlats.Take(5);
 
-            await foreach (var gateau in gateauEmballer)
-                yield return gateau;
+            var gâteauxCrus = await Task.WhenAll(plats.Select(postePréparation.PréparerAsync));
+            var gâteauxCuits = (await posteCuisson.CuireAsync(gâteauxCrus));
+
+            var gâteauxEmballés = await Task.WhenAll(gâteauxCuits.Select(posteEmballage.EmballerAsync));
+
+           
+            foreach (var gateauEmballe in gâteauxEmballés)
+                yield return gateauEmballe;
         }
+    }
+
+    private static async IAsyncEnumerable<GâteauEmballé> DixParDixAsync(Usine usine, Préparation postePréparation, Cuisson posteCuisson,
+        Emballage posteEmballage)
+    {
+        var plats = usine.StockInfiniPlats.Take(10).ToArray();
+        var gateauxCru = (plats.Select(postePréparation.PréparerAsync)).EnumerateCompleted();
+
+        var bufferGateauxCru = new List<GâteauCru>();
+        var gateauxCuit = await CuireAsync(gateauxCru, bufferGateauxCru, posteCuisson).ToEnumerableAsync();
+
+
+        var gateauEmballer = gateauxCuit.Select(posteEmballage.EmballerAsync).EnumerateCompleted();
+
+        await foreach (var gateau in gateauEmballer)
+            yield return gateau;
     }
 
     private static async IAsyncEnumerable<GâteauCuit> CuireAsync(IAsyncEnumerable<GâteauCru> gateauxCru, List<GâteauCru> bufferGateauxCru, Cuisson posteCuisson)
