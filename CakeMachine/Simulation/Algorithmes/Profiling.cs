@@ -45,39 +45,61 @@ internal class Profiling : Algorithme
         Usine usine,
         [EnumeratorCancellation] CancellationToken token)
     {
-        var postePréparation = usine.Préparateurs.Single();
+        var postePréparation = usine.Préparateurs;
         var posteCuisson = usine.Fours.Single();
-        var postesEmballages = usine.Emballeuses.Take(2);
+        var postesEmballages = usine.Emballeuses;
 
         while (!token.IsCancellationRequested)
         {
             var plats = usine.StockInfiniPlats.Take(5);
 
-            var gâteauxCrus = await Task.WhenAll(plats.Select(postePréparation.PréparerAsync));
-            var gâteauxCuits = (await posteCuisson.CuireAsync(gâteauxCrus));
+            var gâteauxCrus = plats.Select(postePréparation.First(poste => poste.PlacesRestantes != 0).PréparerAsync).EnumerateCompleted();
+            var gâteauxCuits = CuireAsync(gâteauxCrus, posteCuisson, usine.OrganisationUsine.ParamètresCuisson.NombrePlaces);
 
-            var gâteauxEmballés = await Task.WhenAll(gâteauxCuits.Select(postesEmballages.First(poste => poste.PlacesRestantes != 0).EmballerAsync));
+            var gâteauxEmballés = EmballerAsync(gâteauxCuits, postesEmballages, usine.OrganisationUsine.ParamètresEmballage.NombrePlaces);
 
-           
-            foreach (var gateauEmballe in gâteauxEmballés)
+            await foreach (var gateauEmballe in gâteauxEmballés)
                 yield return gateauEmballe;
         }
     }
 
-    private static async IAsyncEnumerable<GâteauCuit> CuireAsync(IAsyncEnumerable<GâteauCru> gateauxCru, List<GâteauCru> bufferGateauxCru, Cuisson posteCuisson)
+    private static async IAsyncEnumerable<GâteauCuit> CuireAsync(IAsyncEnumerable<GâteauCru> gateauxCru, Cuisson posteCuisson, ushort nbPlaces)
     {
-        await foreach (var gateauCru in gateauxCru)
+        List<GâteauCru> plaqueGateauxCru = new();
+        var enumator = gateauxCru.GetAsyncEnumerator();
+        while (await enumator.MoveNextAsync())
         {
-            bufferGateauxCru.Add(gateauCru);
-            if (bufferGateauxCru.Count == 5)
+            var gateauCru = enumator.Current;
+            plaqueGateauxCru.Add(gateauCru);
+            
+            if (plaqueGateauxCru.Count == nbPlaces)
             {
-                var gateauxCuit =  await posteCuisson.CuireAsync(bufferGateauxCru.ToArray());
-
-                foreach (var gateau in gateauxCuit)
+                foreach (var gateau in await posteCuisson.CuireAsync(plaqueGateauxCru.ToArray()))
                 {
                     yield return gateau;
                 }
-                bufferGateauxCru.Clear();
+                plaqueGateauxCru.Clear();
+            }
+        }
+
+        if (plaqueGateauxCru.Count > 0)
+        {
+            foreach (var gateau in await posteCuisson.CuireAsync(plaqueGateauxCru.ToArray()))
+            {
+                yield return gateau;
+            }
+        }
+    }
+    
+    private static async IAsyncEnumerable<GâteauEmballé> EmballerAsync(IAsyncEnumerable<GâteauCuit> gateauxCuit, IEnumerable<Emballage> posteEmballages, ushort nbPlaces)
+    {
+        await foreach (var gateauCuit in gateauxCuit)
+        {
+            var gateauxEmballés =  await Task.WhenAll(posteEmballages.First(poste => poste.PlacesRestantes != 0).EmballerAsync(gateauCuit));
+
+            foreach (var gateau in gateauxEmballés)
+            {
+                yield return gateau;
             }
         }
     }
